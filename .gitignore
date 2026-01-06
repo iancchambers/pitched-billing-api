@@ -1,0 +1,29 @@
+# .NET build outputs
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE
+.vs/
+.vscode/
+*.swp
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+
+# Development settings with secrets - DO NOT COMMIT
+appsettings.Development.json
+
+# macOS
+.DS_Store

@@ -1,0 +1,229 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using PitchedBillingApi.Data;
+using PitchedBillingApi.Entities;
+using PitchedBillingApi.Models;
+
+namespace PitchedBillingApi.Services;
+
+public interface IQuickBooksAuthService
+{
+    string GetAuthorizationUrl(string state);
+    Task<QuickBooksTokenResponse> ExchangeCodeForTokensAsync(string code, string realmId);
+    Task<QuickBooksTokenResponse> RefreshAccessTokenAsync();
+    Task<string> GetValidAccessTokenAsync();
+    bool IsConnected { get; }
+    string? RealmId { get; }
+}
+
+public class QuickBooksAuthService : IQuickBooksAuthService
+{
+    private readonly HttpClient _httpClient;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<QuickBooksAuthService> _logger;
+    private readonly BillingDbContext _dbContext;
+
+    private const string AuthorizationEndpoint = "https://appcenter.intuit.com/connect/oauth2";
+    private const string TokenEndpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
+
+    // Cache for current request - loaded from DB on first access
+    private QuickBooksToken? _cachedToken;
+
+    public bool IsConnected => GetTokenFromDb() != null;
+    public string? RealmId => GetTokenFromDb()?.RealmId;
+
+    public QuickBooksAuthService(
+        HttpClient httpClient,
+        IConfiguration configuration,
+        BillingDbContext dbContext,
+        ILogger<QuickBooksAuthService> logger)
+    {
+        _httpClient = httpClient;
+        _configuration = configuration;
+        _dbContext = dbContext;
+        _logger = logger;
+    }
+
+    private QuickBooksToken? GetTokenFromDb()
+    {
+        if (_cachedToken != null)
+            return _cachedToken;
+
+        _cachedToken = _dbContext.QuickBooksTokens
+            .OrderByDescending(t => t.ModifiedDate)
+            .FirstOrDefault();
+
+        return _cachedToken;
+    }
+
+    public string GetAuthorizationUrl(string state)
+    {
+        var clientId = _configuration["quickbooks-client-id"];
+        var redirectUri = _configuration["quickbooks-redirect-uri"];
+        var scope = "com.intuit.quickbooks.accounting";
+
+        if (string.IsNullOrEmpty(clientId) || string.IsNullOrEmpty(redirectUri))
+        {
+            throw new InvalidOperationException("QuickBooks client ID or redirect URI not configured");
+        }
+
+        var url = $"{AuthorizationEndpoint}?" +
+                  $"client_id={Uri.EscapeDataString(clientId)}&" +
+                  $"redirect_uri={Uri.EscapeDataString(redirectUri)}&" +
+                  $"response_type=code&" +
+                  $"scope={Uri.EscapeDataString(scope)}&" +
+                  $"state={Uri.EscapeDataString(state)}";
+
+        return url;
+    }
+
+    public async Task<QuickBooksTokenResponse> ExchangeCodeForTokensAsync(string code, string realmId)
+    {
+        var clientId = _configuration["quickbooks-client-id"];
+        var clientSecret = _configuration["quickbooks-client-secret"];
+        var redirectUri = _configuration["quickbooks-redirect-uri"];
+
+        var requestBody = new Dictionary<string, string>
+        {
+            { "grant_type", "authorization_code" },
+            { "code", code },
+            { "redirect_uri", redirectUri! }
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint)
+        {
+            Content = new FormUrlEncodedContent(requestBody)
+        };
+
+        var authBytes = Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic", Convert.ToBase64String(authBytes));
+
+        var response = await _httpClient.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Failed to exchange code for tokens: {Error}", errorContent);
+            throw new InvalidOperationException($"Failed to exchange code for tokens: {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync();
+        var tokens = JsonSerializer.Deserialize<QuickBooksTokenResponse>(content)
+            ?? throw new InvalidOperationException("Failed to deserialize token response");
+
+        // Store tokens in database
+        var existingToken = await _dbContext.QuickBooksTokens.FirstOrDefaultAsync(t => t.RealmId == realmId);
+
+        if (existingToken != null)
+        {
+            existingToken.AccessToken = tokens.AccessToken;
+            existingToken.RefreshToken = tokens.RefreshToken;
+            existingToken.AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
+            existingToken.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100);
+            existingToken.ModifiedDate = DateTime.UtcNow;
+        }
+        else
+        {
+            var newToken = new QuickBooksToken
+            {
+                RealmId = realmId,
+                AccessToken = tokens.AccessToken,
+                RefreshToken = tokens.RefreshToken,
+                AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn),
+                RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100),
+                CreatedDate = DateTime.UtcNow,
+                ModifiedDate = DateTime.UtcNow
+            };
+            _dbContext.QuickBooksTokens.Add(newToken);
+        }
+
+        await _dbContext.SaveChangesAsync();
+        _cachedToken = null; // Clear cache
+
+        _logger.LogInformation("QuickBooks tokens stored in database for realm {RealmId}", realmId);
+
+        return tokens;
+    }
+
+    public async Task<QuickBooksTokenResponse> RefreshAccessTokenAsync()
+    {
+        var token = GetTokenFromDb();
+        if (token == null || string.IsNullOrEmpty(token.RefreshToken))
+        {
+            throw new InvalidOperationException("No refresh token available. Please re-authorize.");
+        }
+
+        var clientId = _configuration["quickbooks-client-id"];
+        var clientSecret = _configuration["quickbooks-client-secret"];
+
+        var requestBody = new Dictionary<string, string>
+        {
+            { "grant_type", "refresh_token" },
+            { "refresh_token", token.RefreshToken }
+        };
+
+        var request = new HttpRequestMessage(HttpMethod.Post, TokenEndpoint)
+        {
+            Content = new FormUrlEncodedContent(requestBody)
+        };
+
+        var authBytes = Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}");
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic", Convert.ToBase64String(authBytes));
+
+        var response = await _httpClient.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            _logger.LogError("Failed to refresh token: {Error}", errorContent);
+
+            // Clear tokens on refresh failure (expired refresh token)
+            _dbContext.QuickBooksTokens.Remove(token);
+            await _dbContext.SaveChangesAsync();
+            _cachedToken = null;
+
+            throw new InvalidOperationException($"Failed to refresh token: {errorContent}");
+        }
+
+        var content = await response.Content.ReadAsStringAsync();
+        var tokens = JsonSerializer.Deserialize<QuickBooksTokenResponse>(content)
+            ?? throw new InvalidOperationException("Failed to deserialize token response");
+
+        // Update stored tokens
+        token.AccessToken = tokens.AccessToken;
+        token.RefreshToken = tokens.RefreshToken;
+        token.AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
+        token.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100);
+        token.ModifiedDate = DateTime.UtcNow;
+
+        await _dbContext.SaveChangesAsync();
+        _cachedToken = null; // Clear cache
+
+        _logger.LogInformation("QuickBooks tokens refreshed successfully");
+
+        return tokens;
+    }
+
+    public async Task<string> GetValidAccessTokenAsync()
+    {
+        var token = GetTokenFromDb();
+        if (token == null)
+        {
+            throw new InvalidOperationException("Not connected to QuickBooks. Please authorize first.");
+        }
+
+        // Refresh token if expired or about to expire (5 minute buffer)
+        if (DateTime.UtcNow >= token.AccessTokenExpiresAt.AddMinutes(-5))
+        {
+            _logger.LogInformation("Access token expired or expiring soon, refreshing...");
+            await RefreshAccessTokenAsync();
+            token = GetTokenFromDb()!;
+        }
+
+        return token.AccessToken;
+    }
+}

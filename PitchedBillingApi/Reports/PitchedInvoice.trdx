@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Report Width="21cm" Name="PitchedInvoice" xmlns="http://schemas.telerik.com/reporting/2023/3.0">
+  <PageSettings PaperKind="A4">
+    <Margins Left="15mm" Right="15mm" Top="15mm" Bottom="15mm" />
+  </PageSettings>
+
+  <Items>
+    <!-- Page Header -->
+    <PageHeaderSection Height="30mm" Name="pageHeader">
+      <Items>
+        <TextBox Value="Marketing, Websites and Booking Solutions" Name="tagline"
+          Width="75mm" Height="5mm" Left="115mm" Top="22mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="8pt" />
+          </Style>
+        </TextBox>
+      </Items>
+    </PageHeaderSection>
+
+    <!-- Detail Section -->
+    <DetailSection Height="200mm" Name="detail">
+      <Items>
+        <!-- Invoice Title -->
+        <TextBox Value="Invoice" Name="invoiceTitle"
+          Width="80mm" Height="12mm" Left="0mm" Top="0mm">
+          <Style>
+            <Font Name="Arial" Size="28pt" Bold="True" />
+          </Style>
+        </TextBox>
+
+        <!-- Customer Name -->
+        <TextBox Value="= Fields.CustomerName" Name="customerName"
+          Width="80mm" Height="35mm" Left="0mm" Top="15mm">
+          <Style VerticalAlign="Top">
+            <Font Name="Arial" Size="10pt" />
+          </Style>
+        </TextBox>
+
+        <!-- Invoice Number Label -->
+        <TextBox Value="Invoice Number" Name="invoiceNumberLabel"
+          Width="35mm" Height="5.5mm" Left="95mm" Top="15mm">
+          <Style>
+            <Font Name="Arial" Size="9pt" Bold="True" />
+          </Style>
+        </TextBox>
+
+        <!-- Invoice Number Value -->
+        <TextBox Value="= Fields.InvoiceNumber" Name="invoiceNumberValue"
+          Width="50mm" Height="5.5mm" Left="130mm" Top="15mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- Invoice Date Label -->
+        <TextBox Value="Invoice Date" Name="invoiceDateLabel"
+          Width="35mm" Height="5.5mm" Left="95mm" Top="20.5mm">
+          <Style>
+            <Font Name="Arial" Size="9pt" Bold="True" />
+          </Style>
+        </TextBox>
+
+        <!-- Invoice Date Value -->
+        <TextBox Value="= Fields.InvoiceDate" Format="{0:dd/MM/yy}" Name="invoiceDateValue"
+          Width="50mm" Height="5.5mm" Left="130mm" Top="20.5mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- Sub-total Label -->
+        <TextBox Value="Sub-total" Name="subtotalLabel"
+          Width="35mm" Height="5mm" Left="110mm" Top="120mm">
+          <Style>
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- Sub-total Value -->
+        <TextBox Value="= '£' + Fields.SubTotal.ToString('N2')" Name="subtotalValue"
+          Width="30mm" Height="5mm" Left="150mm" Top="120mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- VAT Label -->
+        <TextBox Value="VAT Total (20%)" Name="vatLabel"
+          Width="35mm" Height="5mm" Left="110mm" Top="126mm">
+          <Style>
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- VAT Value -->
+        <TextBox Value="= '£' + Fields.VatTotal.ToString('N2')" Name="vatValue"
+          Width="30mm" Height="5mm" Left="150mm" Top="126mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="9pt" />
+          </Style>
+        </TextBox>
+
+        <!-- Total Label -->
+        <TextBox Value="Total" Name="totalLabel"
+          Width="35mm" Height="5mm" Left="110mm" Top="132mm">
+          <Style>
+            <Font Name="Arial" Size="9pt" Bold="True" />
+          </Style>
+        </TextBox>
+
+        <!-- Total Value -->
+        <TextBox Value="= '£' + Fields.Total.ToString('N2')" Name="totalValue"
+          Width="30mm" Height="5mm" Left="150mm" Top="132mm">
+          <Style TextAlign="Right">
+            <Font Name="Arial" Size="9pt" Bold="True" />
+          </Style>
+        </TextBox>
+      </Items>
+    </DetailSection>
+
+    <!-- Page Footer -->
+    <PageFooterSection Height="30mm" Name="pageFooter">
+      <Items>
+        <TextBox Value="contact@pitched.co.uk&#xA;01726 418 118&#xA;www.pitched.co.uk" Name="contactInfo"
+          Width="50mm" Height="18mm" Left="0mm" Top="5mm">
+          <Style VerticalAlign="Middle" Color="White">
+            <Font Name="Arial" Size="8pt" />
+          </Style>
+        </TextBox>
+      </Items>
+    </PageFooterSection>
+  </Items>
+</Report>
