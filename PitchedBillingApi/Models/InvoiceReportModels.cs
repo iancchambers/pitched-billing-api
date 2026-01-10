@@ -5,6 +5,9 @@ namespace PitchedBillingApi.Models;
 /// </summary>
 public class InvoiceReportData
 {
+    // Invoice ID (for report parameter lookup)
+    public Guid InvoiceId { get; set; }
+
     // Invoice Header
     public string InvoiceNumber { get; set; } = string.Empty;
     public DateTime InvoiceDate { get; set; }
@@ -67,18 +70,46 @@ public record GenerateInvoiceRequest(
     DateTime? InvoiceDate = null,
     string? YourReference = null,
     string? OurReference = null,
-    string? AccountHandler = null);
+    string? AccountHandler = null,
+    bool SendEmail = false);
 
 /// <summary>
 /// Response from invoice generation
 /// </summary>
 public record GenerateInvoiceResponse(
-    Guid InvoiceHistoryId,
+    Guid InvoiceId,
     string InvoiceNumber,
     decimal TotalAmount,
-    string? QuickBooksInvoiceId);
+    string? QuickBooksInvoiceId,
+    List<InvoiceItemResponse> Items);
+
+/// <summary>
+/// Invoice item for response
+/// </summary>
+public record InvoiceItemResponse(
+    Guid ItemId,
+    string Description,
+    decimal Quantity,
+    decimal Rate,
+    decimal NetAmount,
+    decimal VatRate,
+    decimal VatAmount,
+    decimal TotalAmount);
 
 /// <summary>
 /// Request to resend an invoice email
 /// </summary>
 public record ResendRequest(string? RecipientEmail);
+
+/// <summary>
+/// Request to update invoice item descriptions on a draft invoice
+/// </summary>
+public record UpdateInvoiceItemRequest(
+    Guid ItemId,
+    string Description);
+
+/// <summary>
+/// Request to update multiple invoice items
+/// </summary>
+public record UpdateInvoiceItemsRequest(
+    List<UpdateInvoiceItemRequest> Items);

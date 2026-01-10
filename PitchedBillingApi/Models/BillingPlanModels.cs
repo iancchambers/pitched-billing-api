@@ -19,18 +19,20 @@ public record UpdateBillingPlanRequest(
 
 public record CreateBillingPlanItemRequest(
     string QuickBooksItemId,
-    string ItemName,
     decimal Quantity,
     decimal Rate,
-    string? Description);
+    string Description,
+    DateTime FromDate,
+    DateTime? ToDate);
 
 public record UpdateBillingPlanItemRequest(
     string QuickBooksItemId,
-    string ItemName,
     decimal Quantity,
     decimal Rate,
-    string? Description,
-    int SortOrder);
+    string Description,
+    int SortOrder,
+    DateTime FromDate,
+    DateTime? ToDate);
 
 // Response models
 public record BillingPlanResponse(
@@ -53,6 +55,10 @@ public record BillingPlanItemResponse(
     decimal Rate,
     string? Description,
     int SortOrder,
+    DateTime FromDate,
+    DateTime? ToDate,
+    string QuickBooksTaxCodeId,
+    decimal VatRate,
     decimal LineTotal);
 
 // Mapping extension methods
@@ -83,6 +89,10 @@ public static class BillingPlanMappings
             item.Rate,
             item.Description,
             item.SortOrder,
+            item.FromDate,
+            item.ToDate,
+            item.QuickBooksTaxCodeId,
+            item.VatRate,
             item.Quantity * item.Rate);
     }
 }

@@ -10,6 +10,12 @@ public class BillingPlanItem
     public decimal Rate { get; set; }
     public string? Description { get; set; }
     public int SortOrder { get; set; }
+    public DateTime FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+
+    // Tax Information
+    public string QuickBooksTaxCodeId { get; set; } = string.Empty;
+    public decimal VatRate { get; set; }
 
     // Navigation property
     public BillingPlan BillingPlan { get; set; } = null!;

@@ -127,6 +127,9 @@ public class QuickBooksItem
 
     [JsonPropertyName("SyncToken")]
     public string SyncToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("SalesTaxCodeRef")]
+    public Reference? SalesTaxCodeRef { get; set; }
 }
 
 // Invoice model for posting
@@ -141,11 +144,29 @@ public class QuickBooksInvoiceCreate
     [JsonPropertyName("DueDate")]
     public string? DueDate { get; set; }
 
+    [JsonPropertyName("DocNumber")]
+    public string? DocNumber { get; set; }
+
     [JsonPropertyName("PrivateNote")]
     public string? PrivateNote { get; set; }
 
     [JsonPropertyName("CustomerMemo")]
     public MemoRef? CustomerMemo { get; set; }
+
+    [JsonPropertyName("GlobalTaxCalculation")]
+    public string? GlobalTaxCalculation { get; set; }
+
+    [JsonPropertyName("TxnTaxDetail")]
+    public TxnTaxDetail? TxnTaxDetail { get; set; }
+}
+
+public class TxnTaxDetail
+{
+    [JsonPropertyName("TxnTaxCodeRef")]
+    public Reference? TxnTaxCodeRef { get; set; }
+
+    [JsonPropertyName("TotalTax")]
+    public decimal? TotalTax { get; set; }
 }
 
 public class Reference
@@ -166,7 +187,7 @@ public class MemoRef
 public class InvoiceLine
 {
     [JsonPropertyName("Amount")]
-    public decimal Amount { get; set; }
+    public decimal? Amount { get; set; }
 
     [JsonPropertyName("DetailType")]
     public string DetailType { get; set; } = "SalesItemLineDetail";
@@ -188,6 +209,9 @@ public class SalesItemLineDetail
 
     [JsonPropertyName("UnitPrice")]
     public decimal UnitPrice { get; set; }
+
+    [JsonPropertyName("TaxCodeRef")]
+    public Reference? TaxCodeRef { get; set; }
 }
 
 // Invoice response
@@ -210,6 +234,52 @@ public class QuickBooksInvoice
 
     [JsonPropertyName("SyncToken")]
     public string SyncToken { get; set; } = string.Empty;
+
+    [JsonPropertyName("TxnTaxDetail")]
+    public TxnTaxDetail? TxnTaxDetail { get; set; }
+
+    [JsonPropertyName("Line")]
+    public List<InvoiceLineResponse>? Line { get; set; }
+}
+
+// Invoice line response (what QB returns)
+public class InvoiceLineResponse
+{
+    [JsonPropertyName("Id")]
+    public string? Id { get; set; }
+
+    [JsonPropertyName("LineNum")]
+    public int? LineNum { get; set; }
+
+    [JsonPropertyName("Amount")]
+    public decimal Amount { get; set; }
+
+    [JsonPropertyName("DetailType")]
+    public string? DetailType { get; set; }
+
+    [JsonPropertyName("SalesItemLineDetail")]
+    public SalesItemLineDetailResponse? SalesItemLineDetail { get; set; }
+
+    [JsonPropertyName("Description")]
+    public string? Description { get; set; }
+}
+
+public class SalesItemLineDetailResponse
+{
+    [JsonPropertyName("ItemRef")]
+    public Reference? ItemRef { get; set; }
+
+    [JsonPropertyName("Qty")]
+    public decimal Qty { get; set; }
+
+    [JsonPropertyName("UnitPrice")]
+    public decimal UnitPrice { get; set; }
+
+    [JsonPropertyName("TaxCodeRef")]
+    public Reference? TaxCodeRef { get; set; }
+
+    [JsonPropertyName("TaxInclusiveAmt")]
+    public decimal? TaxInclusiveAmt { get; set; }
 }
 
 // DTOs for API responses
@@ -218,11 +288,138 @@ public record QuickBooksCustomerDto(
     string DisplayName,
     string? CompanyName,
     string? Email,
-    string? BillingAddress);
+    string? BillingAddress,
+    Address? BillAddr);
 
 public record QuickBooksItemDto(
     string Id,
     string Name,
     string? Description,
     decimal? UnitPrice,
-    string Type);
+    string Type,
+    string? SalesTaxCodeId);
+
+// Customer creation model
+public class QuickBooksCustomerCreate
+{
+    [JsonPropertyName("DisplayName")]
+    public string DisplayName { get; set; } = string.Empty;
+
+    [JsonPropertyName("CompanyName")]
+    public string? CompanyName { get; set; }
+
+    [JsonPropertyName("PrimaryEmailAddr")]
+    public EmailAddress? PrimaryEmailAddr { get; set; }
+
+    [JsonPropertyName("BillAddr")]
+    public Address? BillAddr { get; set; }
+}
+
+// Customer response wrapper
+public class QuickBooksCustomerResponse
+{
+    [JsonPropertyName("Customer")]
+    public QuickBooksCustomer Customer { get; set; } = new();
+}
+
+// Customer request models
+public record CreateQuickBooksCustomerRequest(
+    string DisplayName,
+    string? CompanyName,
+    string? Email,
+    AddressRequest? BillingAddress);
+
+public record AddressRequest(
+    string? Line1,
+    string? City,
+    string? State,
+    string? PostalCode,
+    string? Country);
+
+// TaxCode model
+public class QuickBooksTaxCode
+{
+    [JsonPropertyName("Id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("Name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("Description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("Active")]
+    public bool Active { get; set; }
+
+    [JsonPropertyName("Taxable")]
+    public bool Taxable { get; set; }
+
+    [JsonPropertyName("TaxGroup")]
+    public bool TaxGroup { get; set; }
+
+    [JsonPropertyName("SalesTaxRateList")]
+    public TaxRateList? SalesTaxRateList { get; set; }
+
+    [JsonPropertyName("PurchaseTaxRateList")]
+    public TaxRateList? PurchaseTaxRateList { get; set; }
+}
+
+public class TaxRateList
+{
+    [JsonPropertyName("TaxRateDetail")]
+    public List<TaxRateDetail>? TaxRateDetail { get; set; }
+}
+
+public class TaxRateDetail
+{
+    [JsonPropertyName("TaxRateRef")]
+    public Reference? TaxRateRef { get; set; }
+
+    [JsonPropertyName("TaxTypeApplicable")]
+    public string? TaxTypeApplicable { get; set; }
+
+    [JsonPropertyName("TaxOrder")]
+    public int? TaxOrder { get; set; }
+}
+
+// TaxRate model
+public class QuickBooksTaxRate
+{
+    [JsonPropertyName("Id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("Name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("Description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("Active")]
+    public bool Active { get; set; }
+
+    [JsonPropertyName("RateValue")]
+    public decimal RateValue { get; set; }
+
+    [JsonPropertyName("AgencyRef")]
+    public Reference? AgencyRef { get; set; }
+}
+
+// Tax code response wrapper
+public class QuickBooksTaxCodeResponse
+{
+    [JsonPropertyName("TaxCode")]
+    public QuickBooksTaxCode TaxCode { get; set; } = new();
+}
+
+// Tax rate response wrapper
+public class QuickBooksTaxRateResponse
+{
+    [JsonPropertyName("TaxRate")]
+    public QuickBooksTaxRate TaxRate { get; set; } = new();
+}
+
+// Tax information DTO
+public record TaxInfo(
+    string TaxCodeId,
+    string TaxCodeName,
+    decimal TaxRate);

@@ -14,11 +14,13 @@ public class BillingPlan
 
     // Navigation properties
     public ICollection<BillingPlanItem> Items { get; set; } = new List<BillingPlanItem>();
-    public ICollection<InvoiceHistory> Invoices { get; set; } = new List<InvoiceHistory>();
+    public ICollection<Invoice> Invoices { get; set; } = new List<Invoice>();
 }
 
 public enum BillingFrequency
 {
     Monthly = 1,
-    Yearly = 2
+    Quarterly = 2,
+    Annually = 3,
+    TwoYearly = 4
 }

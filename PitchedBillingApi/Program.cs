@@ -154,13 +154,33 @@ app.MapDelete("/api/billingplan/{id:guid}", async (Guid id, BillingDbContext db)
 // ============================================================================
 
 // Add item to billing plan
-app.MapPost("/api/billingplan/{id:guid}/items", async (Guid id, CreateBillingPlanItemRequest request, BillingDbContext db) =>
+app.MapPost("/api/billingplan/{id:guid}/items", async (Guid id, CreateBillingPlanItemRequest request, BillingDbContext db, IQuickBooksService qbService) =>
 {
     var plan = await db.BillingPlans.Include(p => p.Items).FirstOrDefaultAsync(p => p.Id == id);
 
     if (plan is null)
     {
         return Results.NotFound();
+    }
+
+    // Fetch QuickBooks item to get tax code
+    var qbItem = await qbService.GetItemAsync(request.QuickBooksItemId);
+    if (qbItem is null)
+    {
+        return Results.BadRequest(new { error = $"QuickBooks item {request.QuickBooksItemId} not found" });
+    }
+
+    // Get tax code and VAT rate from QuickBooks item
+    string taxCodeId = qbItem.SalesTaxCodeId ?? string.Empty;
+    decimal vatRate = 0m;
+
+    if (!string.IsNullOrEmpty(taxCodeId))
+    {
+        var taxInfo = await qbService.GetTaxInfoAsync(taxCodeId);
+        if (taxInfo is not null)
+        {
+            vatRate = taxInfo.TaxRate;
+        }
     }
 
     var maxSortOrder = plan.Items.Any() ? plan.Items.Max(i => i.SortOrder) : 0;
@@ -170,11 +190,15 @@ app.MapPost("/api/billingplan/{id:guid}/items", async (Guid id, CreateBillingPla
         Id = Guid.NewGuid(),
         BillingPlanId = id,
         QuickBooksItemId = request.QuickBooksItemId,
-        ItemName = request.ItemName,
+        ItemName = qbItem.Name, // Automatically fetch from QuickBooks
         Quantity = request.Quantity,
         Rate = request.Rate,
         Description = request.Description,
-        SortOrder = maxSortOrder + 1
+        SortOrder = maxSortOrder + 1,
+        FromDate = request.FromDate,
+        ToDate = request.ToDate,
+        QuickBooksTaxCodeId = taxCodeId,
+        VatRate = vatRate
     };
 
     db.BillingPlanItems.Add(item);
@@ -206,7 +230,8 @@ app.MapPut("/api/billingplan/{id:guid}/items/{itemId:guid}", async (
     Guid id,
     Guid itemId,
     UpdateBillingPlanItemRequest request,
-    BillingDbContext db) =>
+    BillingDbContext db,
+    IQuickBooksService qbService) =>
 {
     var item = await db.BillingPlanItems
         .Include(i => i.BillingPlan)
@@ -217,12 +242,36 @@ app.MapPut("/api/billingplan/{id:guid}/items/{itemId:guid}", async (
         return Results.NotFound();
     }
 
+    // Fetch QuickBooks item to get tax code
+    var qbItem = await qbService.GetItemAsync(request.QuickBooksItemId);
+    if (qbItem is null)
+    {
+        return Results.BadRequest(new { error = $"QuickBooks item {request.QuickBooksItemId} not found" });
+    }
+
+    // Get tax code and VAT rate from QuickBooks item
+    string taxCodeId = qbItem.SalesTaxCodeId ?? string.Empty;
+    decimal vatRate = 0m;
+
+    if (!string.IsNullOrEmpty(taxCodeId))
+    {
+        var taxInfo = await qbService.GetTaxInfoAsync(taxCodeId);
+        if (taxInfo is not null)
+        {
+            vatRate = taxInfo.TaxRate;
+        }
+    }
+
     item.QuickBooksItemId = request.QuickBooksItemId;
-    item.ItemName = request.ItemName;
+    item.ItemName = qbItem.Name; // Automatically fetch from QuickBooks
     item.Quantity = request.Quantity;
     item.Rate = request.Rate;
     item.Description = request.Description;
     item.SortOrder = request.SortOrder;
+    item.FromDate = request.FromDate;
+    item.ToDate = request.ToDate;
+    item.QuickBooksTaxCodeId = taxCodeId;
+    item.VatRate = vatRate;
     item.BillingPlan.ModifiedDate = DateTime.UtcNow;
 
     await db.SaveChangesAsync();
@@ -255,13 +304,14 @@ app.MapDelete("/api/billingplan/{id:guid}/items/{itemId:guid}", async (Guid id, 
 // Invoice Endpoints
 // ============================================================================
 
-// Generate invoice for a billing plan
+// Generate invoice for a billing plan (creates draft invoice, does NOT post to QuickBooks)
 app.MapPost("/api/invoice/generate", async (GenerateInvoiceRequest request, IInvoiceOrchestrationService invoiceService) =>
 {
     try
     {
-        var result = await invoiceService.GenerateInvoiceAsync(request);
-        return Results.Created($"/api/invoice/{result.InvoiceHistoryId}", result);
+        // Always create draft invoices - use separate endpoint to post to QuickBooks
+        var result = await invoiceService.GenerateInvoiceAsync(request, request.SendEmail, postToQuickBooks: false);
+        return Results.Created($"/api/invoice/{result.InvoiceId}", result);
     }
     catch (InvalidOperationException ex)
     {
@@ -281,10 +331,10 @@ app.MapGet("/api/invoice/{id:guid}", async (Guid id, IInvoiceOrchestrationServic
 // Get invoice history for a billing plan
 app.MapGet("/api/invoice/plan/{planId:guid}/history", async (Guid planId, IInvoiceOrchestrationService invoiceService) =>
 {
-    var history = await invoiceService.GetInvoiceHistoryAsync(planId);
+    var history = await invoiceService.GetInvoicesAsync(planId);
     return Results.Ok(history);
 })
-.WithName("GetInvoiceHistory");
+.WithName("GetInvoices");
 
 // Download invoice PDF
 app.MapGet("/api/invoice/{id:guid}/pdf", async (Guid id, IInvoiceOrchestrationService invoiceService) =>
@@ -313,6 +363,36 @@ app.MapPost("/api/invoice/{id:guid}/resend", async (Guid id, ResendRequest? requ
     }
 })
 .WithName("ResendInvoice");
+
+// Post draft invoice to QuickBooks
+app.MapPost("/api/invoice/{id:guid}/post-to-quickbooks", async (Guid id, IInvoiceOrchestrationService invoiceService) =>
+{
+    try
+    {
+        var result = await invoiceService.PostInvoiceToQuickBooksAsync(id);
+        return Results.Ok(result);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("PostInvoiceToQuickBooks");
+
+// Update draft invoice item descriptions
+app.MapPut("/api/invoice/{id:guid}/items", async (Guid id, UpdateInvoiceItemsRequest request, IInvoiceOrchestrationService invoiceService) =>
+{
+    try
+    {
+        var result = await invoiceService.UpdateDraftInvoiceItemsAsync(id, request);
+        return result is null ? Results.NotFound() : Results.Ok(result);
+    }
+    catch (InvalidOperationException ex)
+    {
+        return Results.BadRequest(new { error = ex.Message });
+    }
+})
+.WithName("UpdateDraftInvoiceItems");
 
 // ============================================================================
 // QuickBooks Auth Endpoints
@@ -404,6 +484,16 @@ app.MapGet("/api/quickbooks/customers/{customerId}", async (string customerId, I
 })
 .WithName("GetQuickBooksCustomer");
 
+// Create a customer in QuickBooks - NOT IMPLEMENTED
+app.MapPost("/api/quickbooks/customers", (CreateQuickBooksCustomerRequest request) =>
+{
+    return Results.Json(new
+    {
+        error = "Customer creation must be done directly in QuickBooks as it is the source of truth. This API only supports billing plan setup for existing customers."
+    }, statusCode: 501);
+})
+.WithName("CreateQuickBooksCustomer");
+
 // Get all items from QuickBooks
 app.MapGet("/api/quickbooks/items", async (IQuickBooksService qbService) =>
 {
@@ -433,5 +523,20 @@ app.MapGet("/api/quickbooks/items/{itemId}", async (string itemId, IQuickBooksSe
     }
 })
 .WithName("GetQuickBooksItem");
+
+// Get tax code information from QuickBooks
+app.MapGet("/api/quickbooks/taxcodes/{taxCodeId}", async (string taxCodeId, IQuickBooksService qbService) =>
+{
+    try
+    {
+        var taxInfo = await qbService.GetTaxInfoAsync(taxCodeId);
+        return taxInfo is null ? Results.NotFound() : Results.Ok(taxInfo);
+    }
+    catch (InvalidOperationException ex) when (ex.Message.Contains("Not connected"))
+    {
+        return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
+    }
+})
+.WithName("GetQuickBooksTaxCode");
 
 app.Run();

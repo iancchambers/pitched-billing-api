@@ -11,7 +11,8 @@ public class BillingDbContext : DbContext
 
     public DbSet<BillingPlan> BillingPlans => Set<BillingPlan>();
     public DbSet<BillingPlanItem> BillingPlanItems => Set<BillingPlanItem>();
-    public DbSet<InvoiceHistory> InvoiceHistories => Set<InvoiceHistory>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
     public DbSet<EmailDeliveryStatus> EmailDeliveryStatuses => Set<EmailDeliveryStatus>();
     public DbSet<QuickBooksToken> QuickBooksTokens => Set<QuickBooksToken>();
 
@@ -50,10 +51,12 @@ public class BillingDbContext : DbContext
             entity.Property(e => e.Quantity).HasPrecision(18, 4);
             entity.Property(e => e.Rate).HasPrecision(18, 4);
             entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.QuickBooksTaxCodeId).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.VatRate).HasPrecision(5, 2).IsRequired();
         });
 
-        // InvoiceHistory configuration
-        modelBuilder.Entity<InvoiceHistory>(entity =>
+        // Invoice configuration
+        modelBuilder.Entity<Invoice>(entity =>
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.InvoiceNumber).IsRequired().HasMaxLength(50);
@@ -62,13 +65,33 @@ public class BillingDbContext : DbContext
             entity.Property(e => e.GeneratedDate).HasDefaultValueSql("GETUTCDATE()");
             entity.Property(e => e.ErrorMessage).HasMaxLength(2000);
 
+            entity.HasMany(e => e.Items)
+                  .WithOne(e => e.Invoice)
+                  .HasForeignKey(e => e.InvoiceId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
             entity.HasMany(e => e.EmailDeliveries)
-                  .WithOne(e => e.InvoiceHistory)
-                  .HasForeignKey(e => e.InvoiceHistoryId)
+                  .WithOne(e => e.Invoice)
+                  .HasForeignKey(e => e.InvoiceId)
                   .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => e.InvoiceNumber).IsUnique();
             entity.HasIndex(e => e.BillingPlanId);
+        });
+
+        // InvoiceItem configuration
+        modelBuilder.Entity<InvoiceItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ItemDescription).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.ItemCode).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Quantity).HasPrecision(18, 4);
+            entity.Property(e => e.VatRate).HasPrecision(5, 2);
+            entity.Property(e => e.NetAmount).HasPrecision(18, 2);
+            entity.Property(e => e.VatAmount).HasPrecision(18, 2);
+            entity.Property(e => e.TotalAmount).HasPrecision(18, 2);
+
+            entity.HasIndex(e => e.InvoiceId);
         });
 
         // EmailDeliveryStatus configuration

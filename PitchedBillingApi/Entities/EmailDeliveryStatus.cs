@@ -3,7 +3,7 @@ namespace PitchedBillingApi.Entities;
 public class EmailDeliveryStatus
 {
     public Guid Id { get; set; }
-    public Guid InvoiceHistoryId { get; set; }
+    public Guid InvoiceId { get; set; }
     public string RecipientEmail { get; set; } = string.Empty;
     public EmailStatus Status { get; set; } = EmailStatus.Pending;
     public DateTime SentDate { get; set; }
@@ -13,7 +13,7 @@ public class EmailDeliveryStatus
     public int RetryCount { get; set; }
 
     // Navigation property
-    public InvoiceHistory InvoiceHistory { get; set; } = null!;
+    public Invoice Invoice { get; set; } = null!;
 }
 
 public enum EmailStatus

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd.exe /c \"taskkill /F /IM PitchedBillingApi.exe\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using PitchedBillingApi.Data;
 
@@ -11,9 +12,11 @@ using PitchedBillingApi.Data;
 namespace PitchedBillingApi.Migrations
 {
     [DbContext(typeof(BillingDbContext))]
-    partial class BillingDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260107221154_AddAddressFieldsToInvoiceHistory")]
+    partial class AddAddressFieldsToInvoiceHistory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -80,9 +83,6 @@ namespace PitchedBillingApi.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<DateTime>("FromDate")
-                        .HasColumnType("datetime2");
-
                     b.Property<string>("ItemName")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -97,24 +97,12 @@ namespace PitchedBillingApi.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
-                    b.Property<string>("QuickBooksTaxCodeId")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
                     b.Property<decimal>("Rate")
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("int");
-
-                    b.Property<DateTime?>("ToDate")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("VatRate")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
 
                     b.HasKey("Id");
 
@@ -136,7 +124,7 @@ namespace PitchedBillingApi.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
-                    b.Property<Guid>("InvoiceId")
+                    b.Property<Guid>("InvoiceHistoryId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("MailgunMessageId")
@@ -159,14 +147,14 @@ namespace PitchedBillingApi.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("InvoiceId");
+                    b.HasIndex("InvoiceHistoryId");
 
                     b.HasIndex("MailgunMessageId");
 
                     b.ToTable("EmailDeliveryStatuses");
                 });
 
-            modelBuilder.Entity("PitchedBillingApi.Entities.Invoice", b =>
+            modelBuilder.Entity("PitchedBillingApi.Entities.InvoiceHistory", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -238,14 +226,8 @@ namespace PitchedBillingApi.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
-                    b.Property<decimal>("SubTotal")
-                        .HasColumnType("decimal(18,2)");
-
                     b.Property<decimal>("TotalAmount")
                         .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("VatAmount")
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("YourReference")
@@ -258,56 +240,7 @@ namespace PitchedBillingApi.Migrations
                     b.HasIndex("InvoiceNumber")
                         .IsUnique();
 
-                    b.ToTable("Invoices");
-                });
-
-            modelBuilder.Entity("PitchedBillingApi.Entities.InvoiceItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("InvoiceId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ItemCode")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("ItemDescription")
-                        .IsRequired()
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<decimal>("NetAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("TotalAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("VatAmount")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("VatRate")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("decimal(5,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("InvoiceId");
-
-                    b.ToTable("InvoiceItems");
+                    b.ToTable("InvoiceHistories");
                 });
 
             modelBuilder.Entity("PitchedBillingApi.Entities.QuickBooksToken", b =>
@@ -368,16 +301,16 @@ namespace PitchedBillingApi.Migrations
 
             modelBuilder.Entity("PitchedBillingApi.Entities.EmailDeliveryStatus", b =>
                 {
-                    b.HasOne("PitchedBillingApi.Entities.Invoice", "Invoice")
+                    b.HasOne("PitchedBillingApi.Entities.InvoiceHistory", "InvoiceHistory")
                         .WithMany("EmailDeliveries")
-                        .HasForeignKey("InvoiceId")
+                        .HasForeignKey("InvoiceHistoryId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.Navigation("Invoice");
+                    b.Navigation("InvoiceHistory");
                 });
 
-            modelBuilder.Entity("PitchedBillingApi.Entities.Invoice", b =>
+            modelBuilder.Entity("PitchedBillingApi.Entities.InvoiceHistory", b =>
                 {
                     b.HasOne("PitchedBillingApi.Entities.BillingPlan", "BillingPlan")
                         .WithMany("Invoices")
@@ -388,17 +321,6 @@ namespace PitchedBillingApi.Migrations
                     b.Navigation("BillingPlan");
                 });
 
-            modelBuilder.Entity("PitchedBillingApi.Entities.InvoiceItem", b =>
-                {
-                    b.HasOne("PitchedBillingApi.Entities.Invoice", "Invoice")
-                        .WithMany("Items")
-                        .HasForeignKey("InvoiceId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Invoice");
-                });
-
             modelBuilder.Entity("PitchedBillingApi.Entities.BillingPlan", b =>
                 {
                     b.Navigation("Invoices");
@@ -406,11 +328,9 @@ namespace PitchedBillingApi.Migrations
                     b.Navigation("Items");
                 });
 
-            modelBuilder.Entity("PitchedBillingApi.Entities.Invoice", b =>
+            modelBuilder.Entity("PitchedBillingApi.Entities.InvoiceHistory", b =>
                 {
                     b.Navigation("EmailDeliveries");
-
-                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }
