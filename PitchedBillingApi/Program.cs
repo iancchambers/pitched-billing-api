@@ -1,5 +1,8 @@
 using Azure.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Identity.Web;
 using PitchedBillingApi.Data;
 using PitchedBillingApi.Entities;
 using PitchedBillingApi.Models;
@@ -16,6 +19,42 @@ if (!builder.Environment.IsDevelopment())
 
 // Add services to the container
 builder.Services.AddOpenApi();
+
+// Configure Azure AD authentication
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+
+// Configure authorization with group-based policies
+var financeGroupId = builder.Configuration["Authorization:FinanceGroupId"];
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("FinancePolicy", policy =>
+    {
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim("groups", financeGroupId!);
+    });
+});
+
+// Configure CORS for MCP server
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        // Allow localhost for development
+        var allowedOrigins = new List<string> { "http://localhost", "https://localhost" };
+
+        // Allow Container App URL for production
+        var containerAppUrl = Environment.GetEnvironmentVariable("MCP_SERVER_URL");
+        if (!string.IsNullOrEmpty(containerAppUrl))
+        {
+            allowedOrigins.Add(containerAppUrl);
+        }
+
+        policy.WithOrigins(allowedOrigins.ToArray())
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
+});
 
 // Configure Entity Framework with SQL Server
 var connectionString = builder.Configuration["database-connection"];
@@ -52,6 +91,35 @@ var app = builder.Build();
 app.MapOpenApi(); // Serves OpenAPI spec at /openapi/v1.json
 
 app.UseHttpsRedirection();
+app.UseCors();
+app.UseAuthentication();
+
+// DEBUG: Log token claims in Development mode
+if (app.Environment.IsDevelopment())
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.User.Identity?.IsAuthenticated == true)
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            logger.LogInformation("=== TOKEN CLAIMS DEBUG ===");
+            logger.LogInformation("User: {User}", context.User.Identity.Name);
+
+            foreach (var claim in context.User.Claims)
+            {
+                logger.LogInformation("Claim: {Type} = {Value}", claim.Type, claim.Value);
+            }
+
+            var financeGroupId = builder.Configuration["Authorization:FinanceGroupId"];
+            var hasFinanceGroup = context.User.Claims.Any(c => c.Type == "groups" && c.Value == financeGroupId);
+            logger.LogInformation("Has Finance Group ({GroupId}): {HasGroup}", financeGroupId, hasFinanceGroup);
+            logger.LogInformation("=== END TOKEN CLAIMS ===");
+        }
+        await next();
+    });
+}
+
+app.UseAuthorization();
 
 // Health check endpoint
 app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }))
@@ -81,7 +149,8 @@ app.MapPost("/api/billingplan", async (CreateBillingPlanRequest request, Billing
 
     return Results.Created($"/api/billingplan/{plan.Id}", plan.ToResponse());
 })
-.WithName("CreateBillingPlan");
+.WithName("CreateBillingPlan")
+.RequireAuthorization("FinancePolicy");
 
 // List all billing plans
 app.MapGet("/api/billingplan", async (BillingDbContext db, bool? activeOnly) =>
@@ -96,7 +165,8 @@ app.MapGet("/api/billingplan", async (BillingDbContext db, bool? activeOnly) =>
     var plans = await query.OrderByDescending(p => p.CreatedDate).ToListAsync();
     return Results.Ok(plans.Select(p => p.ToResponse()));
 })
-.WithName("ListBillingPlans");
+.WithName("ListBillingPlans")
+.RequireAuthorization("FinancePolicy");
 
 // Get billing plan by ID
 app.MapGet("/api/billingplan/{id:guid}", async (Guid id, BillingDbContext db) =>
@@ -107,7 +177,8 @@ app.MapGet("/api/billingplan/{id:guid}", async (Guid id, BillingDbContext db) =>
 
     return plan is null ? Results.NotFound() : Results.Ok(plan.ToResponse());
 })
-.WithName("GetBillingPlan");
+.WithName("GetBillingPlan")
+.RequireAuthorization("FinancePolicy");
 
 // Update billing plan
 app.MapPut("/api/billingplan/{id:guid}", async (Guid id, UpdateBillingPlanRequest request, BillingDbContext db) =>
@@ -130,7 +201,8 @@ app.MapPut("/api/billingplan/{id:guid}", async (Guid id, UpdateBillingPlanReques
 
     return Results.NoContent();
 })
-.WithName("UpdateBillingPlan");
+.WithName("UpdateBillingPlan")
+.RequireAuthorization("FinancePolicy");
 
 // Delete billing plan
 app.MapDelete("/api/billingplan/{id:guid}", async (Guid id, BillingDbContext db) =>
@@ -147,7 +219,8 @@ app.MapDelete("/api/billingplan/{id:guid}", async (Guid id, BillingDbContext db)
 
     return Results.NoContent();
 })
-.WithName("DeleteBillingPlan");
+.WithName("DeleteBillingPlan")
+.RequireAuthorization("FinancePolicy");
 
 // ============================================================================
 // Billing Plan Items Endpoints
@@ -207,7 +280,8 @@ app.MapPost("/api/billingplan/{id:guid}/items", async (Guid id, CreateBillingPla
 
     return Results.Created($"/api/billingplan/{id}/items/{item.Id}", item.ToResponse());
 })
-.WithName("AddBillingPlanItem");
+.WithName("AddBillingPlanItem")
+.RequireAuthorization("FinancePolicy");
 
 // Get items for billing plan
 app.MapGet("/api/billingplan/{id:guid}/items", async (Guid id, BillingDbContext db) =>
@@ -223,7 +297,8 @@ app.MapGet("/api/billingplan/{id:guid}/items", async (Guid id, BillingDbContext 
 
     return Results.Ok(plan.Items.Select(i => i.ToResponse()));
 })
-.WithName("GetBillingPlanItems");
+.WithName("GetBillingPlanItems")
+.RequireAuthorization("FinancePolicy");
 
 // Update billing plan item
 app.MapPut("/api/billingplan/{id:guid}/items/{itemId:guid}", async (
@@ -278,7 +353,8 @@ app.MapPut("/api/billingplan/{id:guid}/items/{itemId:guid}", async (
 
     return Results.NoContent();
 })
-.WithName("UpdateBillingPlanItem");
+.WithName("UpdateBillingPlanItem")
+.RequireAuthorization("FinancePolicy");
 
 // Delete billing plan item
 app.MapDelete("/api/billingplan/{id:guid}/items/{itemId:guid}", async (Guid id, Guid itemId, BillingDbContext db) =>
@@ -298,7 +374,8 @@ app.MapDelete("/api/billingplan/{id:guid}/items/{itemId:guid}", async (Guid id, 
 
     return Results.NoContent();
 })
-.WithName("DeleteBillingPlanItem");
+.WithName("DeleteBillingPlanItem")
+.RequireAuthorization("FinancePolicy");
 
 // ============================================================================
 // Invoice Endpoints
@@ -310,7 +387,7 @@ app.MapPost("/api/invoice/generate", async (GenerateInvoiceRequest request, IInv
     try
     {
         // Always create draft invoices - use separate endpoint to post to QuickBooks
-        var result = await invoiceService.GenerateInvoiceAsync(request, request.SendEmail, postToQuickBooks: false);
+        var result = await invoiceService.GenerateInvoiceAsync(request, request.SendEmail);
         return Results.Created($"/api/invoice/{result.InvoiceId}", result);
     }
     catch (InvalidOperationException ex)
@@ -318,7 +395,8 @@ app.MapPost("/api/invoice/generate", async (GenerateInvoiceRequest request, IInv
         return Results.BadRequest(new { error = ex.Message });
     }
 })
-.WithName("GenerateInvoice");
+.WithName("GenerateInvoice")
+.RequireAuthorization("FinancePolicy");
 
 // Get invoice by ID
 app.MapGet("/api/invoice/{id:guid}", async (Guid id, IInvoiceOrchestrationService invoiceService) =>
@@ -326,7 +404,8 @@ app.MapGet("/api/invoice/{id:guid}", async (Guid id, IInvoiceOrchestrationServic
     var invoice = await invoiceService.GetInvoiceAsync(id);
     return invoice is null ? Results.NotFound() : Results.Ok(invoice);
 })
-.WithName("GetInvoice");
+.WithName("GetInvoice")
+.RequireAuthorization("FinancePolicy");
 
 // Get invoice history for a billing plan
 app.MapGet("/api/invoice/plan/{planId:guid}/history", async (Guid planId, IInvoiceOrchestrationService invoiceService) =>
@@ -334,7 +413,8 @@ app.MapGet("/api/invoice/plan/{planId:guid}/history", async (Guid planId, IInvoi
     var history = await invoiceService.GetInvoicesAsync(planId);
     return Results.Ok(history);
 })
-.WithName("GetInvoices");
+.WithName("GetInvoices")
+.RequireAuthorization("FinancePolicy");
 
 // Download invoice PDF
 app.MapGet("/api/invoice/{id:guid}/pdf", async (Guid id, IInvoiceOrchestrationService invoiceService) =>
@@ -347,7 +427,8 @@ app.MapGet("/api/invoice/{id:guid}/pdf", async (Guid id, IInvoiceOrchestrationSe
 
     return Results.File(pdf, "application/pdf", $"invoice-{id}.pdf");
 })
-.WithName("DownloadInvoicePdf");
+.WithName("DownloadInvoicePdf")
+.RequireAuthorization("FinancePolicy");
 
 // Resend invoice email
 app.MapPost("/api/invoice/{id:guid}/resend", async (Guid id, ResendRequest? request, IInvoiceOrchestrationService invoiceService) =>
@@ -362,7 +443,8 @@ app.MapPost("/api/invoice/{id:guid}/resend", async (Guid id, ResendRequest? requ
         return Results.BadRequest(new { error = ex.Message });
     }
 })
-.WithName("ResendInvoice");
+.WithName("ResendInvoice")
+.RequireAuthorization("FinancePolicy");
 
 // Post draft invoice to QuickBooks
 app.MapPost("/api/invoice/{id:guid}/post-to-quickbooks", async (Guid id, IInvoiceOrchestrationService invoiceService) =>
@@ -377,7 +459,8 @@ app.MapPost("/api/invoice/{id:guid}/post-to-quickbooks", async (Guid id, IInvoic
         return Results.BadRequest(new { error = ex.Message });
     }
 })
-.WithName("PostInvoiceToQuickBooks");
+.WithName("PostInvoiceToQuickBooks")
+.RequireAuthorization("FinancePolicy");
 
 // Update draft invoice item descriptions
 app.MapPut("/api/invoice/{id:guid}/items", async (Guid id, UpdateInvoiceItemsRequest request, IInvoiceOrchestrationService invoiceService) =>
@@ -392,7 +475,8 @@ app.MapPut("/api/invoice/{id:guid}/items", async (Guid id, UpdateInvoiceItemsReq
         return Results.BadRequest(new { error = ex.Message });
     }
 })
-.WithName("UpdateDraftInvoiceItems");
+.WithName("UpdateDraftInvoiceItems")
+.RequireAuthorization("FinancePolicy");
 
 // ============================================================================
 // QuickBooks Auth Endpoints
@@ -405,7 +489,8 @@ app.MapGet("/api/quickbooks/auth/authorize", (IQuickBooksAuthService authService
     var authUrl = authService.GetAuthorizationUrl(state);
     return Results.Ok(new { authorizationUrl = authUrl, state });
 })
-.WithName("QuickBooksAuthorize");
+.WithName("QuickBooksAuthorize")
+.RequireAuthorization("FinancePolicy");
 
 // OAuth callback - exchange code for tokens
 app.MapGet("/api/quickbooks/auth/callback", async (
@@ -429,7 +514,8 @@ app.MapGet("/api/quickbooks/auth/callback", async (
         return Results.BadRequest(new { error = ex.Message });
     }
 })
-.WithName("QuickBooksCallback");
+.WithName("QuickBooksCallback")
+.RequireAuthorization("FinancePolicy");
 
 // Check connection status
 app.MapGet("/api/quickbooks/auth/status", (IQuickBooksAuthService authService) =>
@@ -440,7 +526,8 @@ app.MapGet("/api/quickbooks/auth/status", (IQuickBooksAuthService authService) =
         realmId = authService.RealmId
     });
 })
-.WithName("QuickBooksStatus");
+.WithName("QuickBooksStatus")
+.RequireAuthorization("FinancePolicy");
 
 // Disconnect from QuickBooks (clear tokens)
 app.MapPost("/api/quickbooks/auth/disconnect", async (IQuickBooksAuthService authService) =>
@@ -448,7 +535,8 @@ app.MapPost("/api/quickbooks/auth/disconnect", async (IQuickBooksAuthService aut
     // For now, just return status - in production you'd clear stored tokens
     return Results.Ok(new { message = "Disconnected from QuickBooks" });
 })
-.WithName("QuickBooksDisconnect");
+.WithName("QuickBooksDisconnect")
+.RequireAuthorization("FinancePolicy");
 
 // ============================================================================
 // QuickBooks Data Endpoints
@@ -467,7 +555,8 @@ app.MapGet("/api/quickbooks/customers", async (IQuickBooksService qbService) =>
         return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
     }
 })
-.WithName("GetQuickBooksCustomers");
+.WithName("GetQuickBooksCustomers")
+.RequireAuthorization("FinancePolicy");
 
 // Get a specific customer from QuickBooks
 app.MapGet("/api/quickbooks/customers/{customerId}", async (string customerId, IQuickBooksService qbService) =>
@@ -482,7 +571,8 @@ app.MapGet("/api/quickbooks/customers/{customerId}", async (string customerId, I
         return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
     }
 })
-.WithName("GetQuickBooksCustomer");
+.WithName("GetQuickBooksCustomer")
+.RequireAuthorization("FinancePolicy");
 
 // Create a customer in QuickBooks - NOT IMPLEMENTED
 app.MapPost("/api/quickbooks/customers", (CreateQuickBooksCustomerRequest request) =>
@@ -492,7 +582,8 @@ app.MapPost("/api/quickbooks/customers", (CreateQuickBooksCustomerRequest reques
         error = "Customer creation must be done directly in QuickBooks as it is the source of truth. This API only supports billing plan setup for existing customers."
     }, statusCode: 501);
 })
-.WithName("CreateQuickBooksCustomer");
+.WithName("CreateQuickBooksCustomer")
+.RequireAuthorization("FinancePolicy");
 
 // Get all items from QuickBooks
 app.MapGet("/api/quickbooks/items", async (IQuickBooksService qbService) =>
@@ -507,7 +598,8 @@ app.MapGet("/api/quickbooks/items", async (IQuickBooksService qbService) =>
         return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
     }
 })
-.WithName("GetQuickBooksItems");
+.WithName("GetQuickBooksItems")
+.RequireAuthorization("FinancePolicy");
 
 // Get a specific item from QuickBooks
 app.MapGet("/api/quickbooks/items/{itemId}", async (string itemId, IQuickBooksService qbService) =>
@@ -522,7 +614,8 @@ app.MapGet("/api/quickbooks/items/{itemId}", async (string itemId, IQuickBooksSe
         return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
     }
 })
-.WithName("GetQuickBooksItem");
+.WithName("GetQuickBooksItem")
+.RequireAuthorization("FinancePolicy");
 
 // Get tax code information from QuickBooks
 app.MapGet("/api/quickbooks/taxcodes/{taxCodeId}", async (string taxCodeId, IQuickBooksService qbService) =>
@@ -537,6 +630,7 @@ app.MapGet("/api/quickbooks/taxcodes/{taxCodeId}", async (string taxCodeId, IQui
         return Results.BadRequest(new { error = "Not connected to QuickBooks. Please authorize first." });
     }
 })
-.WithName("GetQuickBooksTaxCode");
+.WithName("GetQuickBooksTaxCode")
+.RequireAuthorization("FinancePolicy");
 
 app.Run();

@@ -40,7 +40,7 @@ public class InvoiceOrchestrationService : IInvoiceOrchestrationService
 
     public async Task<GenerateInvoiceResponse> GenerateInvoiceAsync(GenerateInvoiceRequest request, bool sendEmail = false, bool postToQuickBooks = false)
     {
-        _logger.LogInformation("Starting invoice generation for billing plan {PlanId}. PostToQuickBooks={PostToQB}", request.BillingPlanId, postToQuickBooks);
+        _logger.LogInformation("Starting DRAFT invoice generation for billing plan {PlanId}", request.BillingPlanId);
 
         // 1. Fetch billing plan with items
         var billingPlan = await _db.BillingPlans
@@ -130,107 +130,9 @@ public class InvoiceOrchestrationService : IInvoiceOrchestrationService
 
         // 6. Save invoice to database FIRST (so we have a record and can reference it)
         await _db.SaveChangesAsync();
-        _logger.LogInformation("Invoice {InvoiceNumber} saved to database with ID {InvoiceId}", invoiceNumber, invoiceId);
+        _logger.LogInformation("Invoice {InvoiceNumber} saved to database with ID {InvoiceId} in Draft status", invoiceNumber, invoiceId);
 
-        // 7. Post to QuickBooks (only if requested)
-        string? quickBooksInvoiceId = null;
-        if (postToQuickBooks)
-        {
-            try
-            {
-                var qbInvoice = new QuickBooksInvoiceCreate
-            {
-                CustomerRef = new Reference { Value = billingPlan.QuickBooksCustomerId },
-                DueDate = dueDate.ToString("yyyy-MM-dd"),
-                DocNumber = invoiceNumber,
-                Line = billingPlan.Items.Select(i => new InvoiceLine
-                {
-                    Amount = i.Quantity * i.Rate,
-                    DetailType = "SalesItemLineDetail",
-                    Description = !string.IsNullOrEmpty(i.Description) ? i.Description : null,
-                    SalesItemLineDetail = new SalesItemLineDetail
-                    {
-                        ItemRef = new Reference { Value = i.QuickBooksItemId },
-                        Qty = i.Quantity,
-                        UnitPrice = i.Rate,
-                        TaxCodeRef = !string.IsNullOrEmpty(i.QuickBooksTaxCodeId)
-                            ? new Reference { Value = i.QuickBooksTaxCodeId }
-                            : null
-                    }
-                }).ToList()
-            };
-
-            var createdInvoice = await _quickBooksService.CreateInvoiceAsync(qbInvoice);
-            quickBooksInvoiceId = createdInvoice.Id;
-            invoice.QuickBooksInvoiceId = quickBooksInvoiceId;
-            invoice.PostedToQuickBooksDate = DateTime.UtcNow;
-            invoice.Status = InvoiceStatus.Posted;
-
-            // Update invoice amounts from QuickBooks response (QB is source of truth)
-            invoice.VatAmount = createdInvoice.TxnTaxDetail?.TotalTax ?? 0m;
-            invoice.TotalAmount = createdInvoice.TotalAmt;
-            invoice.SubTotal = invoice.TotalAmount - invoice.VatAmount;
-
-            // Update line items with QB's calculated amounts
-            if (createdInvoice.Line != null && createdInvoice.Line.Any())
-            {
-                foreach (var qbLine in createdInvoice.Line)
-                {
-                    // Skip non-sales lines (like subtotal lines)
-                    if (qbLine.DetailType != "SalesItemLineDetail" || qbLine.SalesItemLineDetail?.ItemRef?.Value == null)
-                        continue;
-
-                    // Match QB line to our invoice item by ItemCode (QuickBooks Item ID)
-                    var matchingItem = invoice.Items.FirstOrDefault(i => i.ItemCode == qbLine.SalesItemLineDetail.ItemRef.Value);
-                    if (matchingItem != null)
-                    {
-                        // QB returns Amount as the total for the line (including tax if tax-inclusive)
-                        // For tax-exclusive (UK standard): Amount = Net, need to calculate VAT
-                        var lineTotal = qbLine.Amount;
-                        var lineQty = qbLine.SalesItemLineDetail.Qty;
-                        var lineUnitPrice = qbLine.SalesItemLineDetail.UnitPrice;
-
-                        // Net amount is quantity * unit price
-                        var lineNet = lineQty * lineUnitPrice;
-
-                        // VAT is the difference (or use TaxInclusiveAmt if available)
-                        var lineVat = lineTotal - lineNet;
-
-                        matchingItem.NetAmount = lineNet;
-                        matchingItem.VatAmount = lineVat;
-                        matchingItem.TotalAmount = lineTotal;
-
-                        _logger.LogDebug("Updated line item {ItemCode}: Net={Net}, VAT={Vat}, Total={Total}",
-                            matchingItem.ItemCode, lineNet, lineVat, lineTotal);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Could not match QB line item {ItemCode} to invoice item",
-                            qbLine.SalesItemLineDetail.ItemRef.Value);
-                    }
-                }
-            }
-
-                _logger.LogInformation("Invoice posted to QuickBooks with ID {QBInvoiceId}. Total: {Total}, VAT: {Vat}, SubTotal: {SubTotal}",
-                    quickBooksInvoiceId, invoice.TotalAmount, invoice.VatAmount, invoice.SubTotal);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to post invoice to QuickBooks");
-                invoice.ErrorMessage = $"Failed to post to QuickBooks: {ex.Message}";
-                invoice.Status = InvoiceStatus.Failed;
-            }
-
-            // 8. Save QuickBooks updates to database (so PDF generation queries accurate amounts)
-            await _db.SaveChangesAsync();
-            _logger.LogInformation("Invoice {InvoiceNumber} updated with QuickBooks amounts", invoiceNumber);
-        }
-        else
-        {
-            _logger.LogInformation("Skipping QuickBooks posting - invoice will remain in Draft status");
-        }
-
-        // 9. Generate PDF from database (now queries QB's actual amounts - source of truth)
+        // 7. Generate PDF for draft invoice (using our calculated amounts)
         var reportData = new InvoiceReportData
         {
             InvoiceId = invoiceId,
@@ -261,11 +163,11 @@ public class InvoiceOrchestrationService : IInvoiceOrchestrationService
         var pdfContent = _reportingService.GenerateInvoicePdf(reportData);
         _logger.LogInformation("Invoice PDF generated, size: {Size} bytes", pdfContent.Length);
 
-        // 10. Update invoice with PDF content
+        // 8. Update invoice with PDF content
         // Note: Status remains Draft unless posted to QuickBooks (then it's Posted or Failed)
         invoice.PdfContent = pdfContent;
 
-        // 11. Send email if requested and customer has email address
+        // 9. Send email if requested and customer has email address
         if (sendEmail)
         {
             if (!string.IsNullOrEmpty(customer.Email))
@@ -304,15 +206,15 @@ public class InvoiceOrchestrationService : IInvoiceOrchestrationService
             _logger.LogInformation("Email sending skipped (sendEmail=false)");
         }
 
-        // 12. Save final updates (PDF content, status, email delivery)
+        // 10. Save final updates (PDF content, status, email delivery)
         await _db.SaveChangesAsync();
-        _logger.LogInformation("Invoice {InvoiceNumber} finalized with PDF and saved to database", invoiceNumber);
+        _logger.LogInformation("DRAFT invoice {InvoiceNumber} finalized with PDF. Use PostInvoiceToQuickBooks to post to QB.", invoiceNumber);
 
         return new GenerateInvoiceResponse(
             invoice.Id,
             invoiceNumber,
             invoice.TotalAmount,
-            quickBooksInvoiceId,
+            null, // Draft invoices don't have a QuickBooks ID yet
             invoice.Items.OrderBy(i => i.SortOrder).Select(i => new InvoiceItemResponse(
                 i.Id,
                 i.ItemDescription,

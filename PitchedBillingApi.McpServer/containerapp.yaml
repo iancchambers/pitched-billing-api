@@ -1,0 +1,43 @@
+# Azure Container App Configuration for MCP Server
+# Deploy with: az containerapp create --resource-group <rg> --yaml containerapp.yaml
+
+properties:
+  configuration:
+    ingress:
+      external: true
+      targetPort: 8080
+      transport: http
+      allowInsecure: false
+    secrets:
+      - name: azure-tenant-id
+        value: "bfdb0820-807a-4f65-8d05-bee073c61a3f"
+      - name: azure-client-id
+        value: "ba5d30cf-2c5e-4915-bd94-f08c99f200ba"
+      - name: api-url
+        value: "https://your-billing-api-url.azurewebsites.net"
+  template:
+    containers:
+      - image: pitchedbillingmcp.azurecr.io/mcp-server:latest
+        name: mcp-server
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          - name: ASPNETCORE_ENVIRONMENT
+            value: "Production"
+          - name: AZURE_TENANT_ID
+            secretRef: azure-tenant-id
+          - name: AZURE_CLIENT_ID
+            secretRef: azure-client-id
+          - name: PITCHED_API_URL
+            secretRef: api-url
+          - name: ASPNETCORE_URLS
+            value: "http://+:8080"
+    scale:
+      minReplicas: 1
+      maxReplicas: 3
+      rules:
+        - name: http-scaling
+          http:
+            metadata:
+              concurrentRequests: "10"

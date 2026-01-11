@@ -15,6 +15,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Identity.Web" Version="4.3.0" />
     <PackageReference Include="Telerik.Drawing.Skia" Version="19.3.25.1119" />
     <PackageReference Include="Telerik.Reporting" Version="19.3.25.1119" />
     <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="3.119.1" />
