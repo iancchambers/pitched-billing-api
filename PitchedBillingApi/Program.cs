@@ -483,24 +483,37 @@ app.MapPut("/api/invoice/{id:guid}/items", async (Guid id, UpdateInvoiceItemsReq
 // ============================================================================
 
 // Start OAuth authorization flow
-app.MapGet("/api/quickbooks/auth/authorize", (IQuickBooksAuthService authService) =>
+app.MapGet("/api/quickbooks/auth/authorize", async (IQuickBooksAuthService authService) =>
 {
     var state = Guid.NewGuid().ToString();
-    var authUrl = authService.GetAuthorizationUrl(state);
+    var authUrl = await authService.GetAuthorizationUrlAsync(state);
     return Results.Ok(new { authorizationUrl = authUrl, state });
 })
 .WithName("QuickBooksAuthorize")
 .RequireAuthorization("FinancePolicy");
 
 // OAuth callback - exchange code for tokens
+// NOTE: This endpoint must be publicly accessible (no auth) because QuickBooks calls it
 app.MapGet("/api/quickbooks/auth/callback", async (
     string code,
     string realmId,
     string state,
-    IQuickBooksAuthService authService) =>
+    IQuickBooksAuthService authService,
+    ILogger<Program> logger) =>
 {
     try
     {
+        // SECURITY: Validate state token to prevent CSRF attacks
+        var isStateValid = await authService.ValidateAndConsumeStateAsync(state);
+        if (!isStateValid)
+        {
+            logger.LogWarning("QuickBooks OAuth callback received invalid or expired state: {State}", state);
+            return Results.BadRequest(new
+            {
+                error = "Invalid or expired authorization request. Please try connecting to QuickBooks again."
+            });
+        }
+
         var tokens = await authService.ExchangeCodeForTokensAsync(code, realmId);
         return Results.Ok(new
         {
@@ -511,11 +524,12 @@ app.MapGet("/api/quickbooks/auth/callback", async (
     }
     catch (Exception ex)
     {
+        logger.LogError(ex, "Error processing QuickBooks OAuth callback");
         return Results.BadRequest(new { error = ex.Message });
     }
 })
 .WithName("QuickBooksCallback")
-.RequireAuthorization("FinancePolicy");
+.AllowAnonymous(); // QuickBooks doesn't have an Azure AD token
 
 // Check connection status
 app.MapGet("/api/quickbooks/auth/status", (IQuickBooksAuthService authService) =>

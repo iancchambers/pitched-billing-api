@@ -10,7 +10,8 @@ namespace PitchedBillingApi.Services;
 
 public interface IQuickBooksAuthService
 {
-    string GetAuthorizationUrl(string state);
+    Task<string> GetAuthorizationUrlAsync(string state);
+    Task<bool> ValidateAndConsumeStateAsync(string state);
     Task<QuickBooksTokenResponse> ExchangeCodeForTokensAsync(string code, string realmId);
     Task<QuickBooksTokenResponse> RefreshAccessTokenAsync();
     Task<string> GetValidAccessTokenAsync();
@@ -58,7 +59,7 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         return _cachedToken;
     }
 
-    public string GetAuthorizationUrl(string state)
+    public async Task<string> GetAuthorizationUrlAsync(string state)
     {
         var clientId = _configuration["quickbooks-client-id"];
         var redirectUri = _configuration["quickbooks-redirect-uri"];
@@ -69,6 +70,21 @@ public class QuickBooksAuthService : IQuickBooksAuthService
             throw new InvalidOperationException("QuickBooks client ID or redirect URI not configured");
         }
 
+        // Store state in database for CSRF protection
+        var oauthState = new OAuthState
+        {
+            State = state,
+            CreatedDate = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(15), // 15 minute expiration
+            Provider = "QuickBooks"
+        };
+
+        _dbContext.OAuthStates.Add(oauthState);
+        await _dbContext.SaveChangesAsync();
+
+        // Cleanup expired states (older than 1 hour)
+        await CleanupExpiredStatesAsync();
+
         var url = $"{AuthorizationEndpoint}?" +
                   $"client_id={Uri.EscapeDataString(clientId)}&" +
                   $"redirect_uri={Uri.EscapeDataString(redirectUri)}&" +
@@ -77,6 +93,54 @@ public class QuickBooksAuthService : IQuickBooksAuthService
                   $"state={Uri.EscapeDataString(state)}";
 
         return url;
+    }
+
+    public async Task<bool> ValidateAndConsumeStateAsync(string state)
+    {
+        if (string.IsNullOrEmpty(state))
+        {
+            _logger.LogWarning("OAuth state validation failed: state is null or empty");
+            return false;
+        }
+
+        var oauthState = await _dbContext.OAuthStates
+            .FirstOrDefaultAsync(s => s.State == state && s.Provider == "QuickBooks");
+
+        if (oauthState == null)
+        {
+            _logger.LogWarning("OAuth state validation failed: state not found - {State}", state);
+            return false;
+        }
+
+        if (oauthState.ExpiresAt < DateTime.UtcNow)
+        {
+            _logger.LogWarning("OAuth state validation failed: state expired - {State}", state);
+            _dbContext.OAuthStates.Remove(oauthState);
+            await _dbContext.SaveChangesAsync();
+            return false;
+        }
+
+        // State is valid - consume it (delete from database to prevent replay)
+        _dbContext.OAuthStates.Remove(oauthState);
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation("OAuth state validated successfully - {State}", state);
+        return true;
+    }
+
+    private async Task CleanupExpiredStatesAsync()
+    {
+        var cutoffTime = DateTime.UtcNow.AddHours(-1);
+        var expiredStates = await _dbContext.OAuthStates
+            .Where(s => s.ExpiresAt < cutoffTime)
+            .ToListAsync();
+
+        if (expiredStates.Any())
+        {
+            _dbContext.OAuthStates.RemoveRange(expiredStates);
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Cleaned up {Count} expired OAuth states", expiredStates.Count);
+        }
     }
 
     public async Task<QuickBooksTokenResponse> ExchangeCodeForTokensAsync(string code, string realmId)

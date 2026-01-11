@@ -15,6 +15,7 @@ public class BillingDbContext : DbContext
     public DbSet<InvoiceItem> InvoiceItems => Set<InvoiceItem>();
     public DbSet<EmailDeliveryStatus> EmailDeliveryStatuses => Set<EmailDeliveryStatus>();
     public DbSet<QuickBooksToken> QuickBooksTokens => Set<QuickBooksToken>();
+    public DbSet<OAuthState> OAuthStates => Set<OAuthState>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -115,6 +116,18 @@ public class BillingDbContext : DbContext
             entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
 
             entity.HasIndex(e => e.RealmId).IsUnique();
+        });
+
+        // OAuthState configuration
+        modelBuilder.Entity<OAuthState>(entity =>
+        {
+            entity.HasKey(e => e.State);
+            entity.Property(e => e.State).IsRequired().HasMaxLength(450);
+            entity.Property(e => e.Provider).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.CreatedDate).HasDefaultValueSql("GETUTCDATE()");
+
+            entity.HasIndex(e => e.ExpiresAt);
+            entity.HasIndex(e => new { e.Provider, e.ExpiresAt });
         });
     }
 }
