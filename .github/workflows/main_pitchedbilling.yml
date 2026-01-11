@@ -1,0 +1,85 @@
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
+
+name: Build and deploy ASP.Net Core app to Azure Web App - pitchedbilling
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.x'
+      
+      - name: Setup NuGet config
+        run: |
+          @"
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+              <add key="Telerik" value="https://nuget.telerik.com/v3/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <Telerik>
+                <add key="Username" value="${{ secrets.TELERIK_USERNAME }}" />
+                <add key="ClearTextPassword" value="${{ secrets.TELERIK_PASSWORD }}" />
+              </Telerik>
+            </packageSourceCredentials>
+          </configuration>
+          "@ | Out-File -FilePath nuget.config -Encoding utf8
+        shell: powershell
+      
+      - name: Build with dotnet
+        run: dotnet build PitchedBillingApi/PitchedBillingApi.csproj --configuration Release
+      
+      - name: dotnet publish
+        run: dotnet publish PitchedBillingApi/PitchedBillingApi.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+      
+      - name: Upload artifact for deployment job
+        uses: actions/upload-artifact@v4
+        with:
+          name: .net-app
+          path: ${{env.DOTNET_ROOT}}/myapp
+
+  deploy:
+    runs-on: windows-latest
+    needs: build
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: .net-app
+          
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_092D0AA415C74478B0DEDB58B4801652 }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_CA16EE06815A48888EC7B61FB11B680D }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_707DE5B8240243C4BF22259032641277 }}
+      
+      - name: Deploy to Azure Web App
+        id: deploy-to-webapp
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'pitchedbilling'
+          slot-name: 'Production'
+          package: .
+          
