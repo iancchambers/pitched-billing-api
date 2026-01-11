@@ -93,7 +93,7 @@ public class InvoiceTools
         }
     }
 
-    [McpServerTool, Description("Get the direct URL to download/view the PDF for an invoice (fast, no validation)")]
+    [McpServerTool, Description("Get the direct URL to download/view the PDF for an invoice. Note: This URL requires authentication and will return 401 if opened directly in a browser. Use DownloadInvoicePdf to save the file locally instead.")]
     public Task<string> GetInvoicePdfUrl(
         [Description("The GUID of the invoice")] string invoiceId)
     {
@@ -106,40 +106,88 @@ public class InvoiceTools
             success = true,
             invoiceId = invoiceId,
             pdfUrl = pdfUrl,
-            message = "Open this URL in a browser to view or download the PDF. The PDF is generated on-demand from the database."
+            message = "Note: This URL requires Azure AD authentication. Opening it directly in a browser will result in a 401 Unauthorized error. Use DownloadInvoicePdf tool to save the file locally instead."
         });
 
         return Task.FromResult(result);
     }
 
-    [McpServerTool, Description("Download the PDF for an invoice with validation. Returns a direct link that can be opened in a browser.")]
+    [McpServerTool, Description("Download the PDF for an invoice and save it to the local Downloads folder. The PDF is downloaded with authentication and saved as a local file that can be opened directly.")]
     public async Task<string> DownloadInvoicePdf(
-        [Description("The GUID of the invoice")] string invoiceId)
+        [Description("The GUID of the invoice")] string invoiceId,
+        [Description("Optional: Custom filename (without extension). If not provided, uses 'invoice-{invoiceId}.pdf'")] string? fileName = null)
     {
         var client = _httpClientFactory.CreateClient("PitchedBillingApi");
 
         try
         {
-            // Verify the invoice exists
-            var response = await client.GetAsync($"/api/invoice/{invoiceId}");
+            // Download the PDF from the API (with authentication)
+            var response = await client.GetAsync($"/api/invoice/{invoiceId}/pdf");
             response.EnsureSuccessStatusCode();
 
-            // Get the API base URL from environment or use default
-            var apiUrl = Environment.GetEnvironmentVariable("PITCHED_API_URL") ?? "http://localhost:5222";
-            var pdfUrl = $"{apiUrl}/api/invoice/{invoiceId}/pdf";
+            var pdfBytes = await response.Content.ReadAsByteArrayAsync();
+
+            if (pdfBytes == null || pdfBytes.Length == 0)
+            {
+                return JsonSerializer.Serialize(new {
+                    success = false,
+                    error = "PDF is empty or could not be generated"
+                });
+            }
+
+            // Determine the save path
+            var downloadsFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads"
+            );
+
+            // Ensure Downloads folder exists
+            Directory.CreateDirectory(downloadsFolder);
+
+            // Create filename
+            var safeFileName = fileName ?? $"invoice-{invoiceId}";
+            // Remove any invalid filename characters
+            var invalidChars = Path.GetInvalidFileNameChars();
+            safeFileName = string.Join("_", safeFileName.Split(invalidChars));
+            var fullPath = Path.Combine(downloadsFolder, $"{safeFileName}.pdf");
+
+            // If file exists, add a number suffix
+            var counter = 1;
+            while (File.Exists(fullPath))
+            {
+                fullPath = Path.Combine(downloadsFolder, $"{safeFileName} ({counter}).pdf");
+                counter++;
+            }
+
+            // Save the PDF to disk
+            await File.WriteAllBytesAsync(fullPath, pdfBytes);
+
+            _logger.LogInformation("Invoice PDF saved to {FilePath}", fullPath);
 
             return JsonSerializer.Serialize(new
             {
                 success = true,
                 invoiceId = invoiceId,
-                pdfUrl = pdfUrl,
-                message = "Open this URL in a browser to view or download the PDF. The PDF is generated on-demand from the database."
+                filePath = fullPath,
+                fileSize = pdfBytes.Length,
+                message = $"PDF downloaded successfully and saved to: {fullPath}"
+            });
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            _logger.LogWarning("Invoice {InvoiceId} not found", invoiceId);
+            return JsonSerializer.Serialize(new {
+                success = false,
+                error = $"Invoice {invoiceId} not found"
             });
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting PDF URL for invoice {InvoiceId}", invoiceId);
-            return JsonSerializer.Serialize(new { error = ex.Message });
+            _logger.LogError(ex, "Error downloading PDF for invoice {InvoiceId}", invoiceId);
+            return JsonSerializer.Serialize(new {
+                success = false,
+                error = ex.Message
+            });
         }
     }
 

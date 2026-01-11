@@ -60,7 +60,7 @@ public class BillingPlanTools
         }
     }
 
-    [McpServerTool, Description("Create a new billing plan")]
+    [McpServerTool, Description("Create a new billing plan default would 3=Annually")]
     public async Task<string> CreateBillingPlan(
         [Description("Name of the billing plan")] string planName,
         [Description("QuickBooks customer ID")] string quickBooksCustomerId,
@@ -166,7 +166,7 @@ public class BillingPlanTools
         }
     }
 
-    [McpServerTool, Description("Add an item to a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain Renewal for example.com (01/01/2026 to 01/01/2027)', description='Hosting for mysite.co.uk (01/01/2026 to 31/12/2026)'.")]
+    [McpServerTool, Description("Add an item to a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain Renewal for example.com (01/01/2026 to 31/12/2026)', description='Hosting for mysite.co.uk (01/01/2026 to 31/12/2026)'.")]
     public async Task<string> AddBillingPlanItem(
         [Description("The GUID of the billing plan")] string planId,
         [Description("QuickBooks item ID")] string quickBooksItemId,

@@ -559,8 +559,9 @@ public class InvoiceOrchestrationService : IInvoiceOrchestrationService
 
     private async Task<string> GenerateInvoiceNumberAsync()
     {
-        // Format: CXXXXXX where XXXXXX is sequential
-        var prefix = "C";
+        // Format: HXXXXXX where XXXXXX is sequential
+        // Changed from C to H prefix for new invoices
+        var prefix = "H";
 
         var lastInvoice = await _db.Invoices
             .Where(i => i.InvoiceNumber.StartsWith(prefix))
