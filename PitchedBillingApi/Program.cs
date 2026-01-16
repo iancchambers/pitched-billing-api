@@ -17,6 +17,15 @@ if (!builder.Environment.IsDevelopment())
     builder.Configuration.AddAzureKeyVault(new Uri(keyVaultUri), new DefaultAzureCredential());
 }
 
+// Configure Data Protection for token encryption (AES-256)
+// Keys are automatically persisted by ASP.NET Core Data Protection
+builder.Services.AddDataProtection();
+
+// Note: In production (Azure App Service):
+// - Keys are automatically stored in %HOME%\ASP.NET\DataProtection-Keys
+// - For multi-server deployments, configure Azure Blob Storage or Redis
+// - For Key Vault encryption, enable managed identity and configure Key Vault access
+
 // Add services to the container
 builder.Services.AddOpenApi();
 
@@ -71,6 +80,9 @@ builder.Services.AddDbContext<BillingDbContext>(options =>
             maxRetryDelay: TimeSpan.FromSeconds(10),
             errorNumbersToAdd: null);
     }));
+
+// Register Token Encryption Service
+builder.Services.AddScoped<ITokenEncryptionService, TokenEncryptionService>();
 
 // Register QuickBooks services
 builder.Services.AddHttpClient<IQuickBooksAuthService, QuickBooksAuthService>();

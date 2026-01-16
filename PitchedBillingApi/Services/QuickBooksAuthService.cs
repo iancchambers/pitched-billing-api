@@ -25,6 +25,7 @@ public class QuickBooksAuthService : IQuickBooksAuthService
     private readonly IConfiguration _configuration;
     private readonly ILogger<QuickBooksAuthService> _logger;
     private readonly BillingDbContext _dbContext;
+    private readonly ITokenEncryptionService _encryptionService;
 
     private const string AuthorizationEndpoint = "https://appcenter.intuit.com/connect/oauth2";
     private const string TokenEndpoint = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer";
@@ -39,12 +40,14 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         HttpClient httpClient,
         IConfiguration configuration,
         BillingDbContext dbContext,
-        ILogger<QuickBooksAuthService> logger)
+        ILogger<QuickBooksAuthService> logger,
+        ITokenEncryptionService encryptionService)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _dbContext = dbContext;
         _logger = logger;
+        _encryptionService = encryptionService;
     }
 
     private QuickBooksToken? GetTokenFromDb()
@@ -52,9 +55,34 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         if (_cachedToken != null)
             return _cachedToken;
 
-        _cachedToken = _dbContext.QuickBooksTokens
+        var dbToken = _dbContext.QuickBooksTokens
             .OrderByDescending(t => t.ModifiedDate)
             .FirstOrDefault();
+
+        if (dbToken != null)
+        {
+            try
+            {
+                // Decrypt tokens after retrieving from database
+                _cachedToken = new QuickBooksToken
+                {
+                    Id = dbToken.Id,
+                    RealmId = dbToken.RealmId,
+                    AccessToken = _encryptionService.Decrypt(dbToken.AccessToken),
+                    RefreshToken = _encryptionService.Decrypt(dbToken.RefreshToken),
+                    AccessTokenExpiresAt = dbToken.AccessTokenExpiresAt,
+                    RefreshTokenExpiresAt = dbToken.RefreshTokenExpiresAt,
+                    CreatedDate = dbToken.CreatedDate,
+                    ModifiedDate = dbToken.ModifiedDate
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to decrypt QuickBooks tokens. Tokens may have been created before encryption was enabled. Please reconnect to QuickBooks.");
+                // Return null to indicate no valid token - forces re-authentication
+                return null;
+            }
+        }
 
         return _cachedToken;
     }
@@ -178,13 +206,14 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         var tokens = JsonSerializer.Deserialize<QuickBooksTokenResponse>(content)
             ?? throw new InvalidOperationException("Failed to deserialize token response");
 
-        // Store tokens in database
+        // Store tokens in database (encrypted)
         var existingToken = await _dbContext.QuickBooksTokens.FirstOrDefaultAsync(t => t.RealmId == realmId);
 
         if (existingToken != null)
         {
-            existingToken.AccessToken = tokens.AccessToken;
-            existingToken.RefreshToken = tokens.RefreshToken;
+            // Encrypt tokens before saving to database
+            existingToken.AccessToken = _encryptionService.Encrypt(tokens.AccessToken);
+            existingToken.RefreshToken = _encryptionService.Encrypt(tokens.RefreshToken);
             existingToken.AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
             existingToken.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100);
             existingToken.ModifiedDate = DateTime.UtcNow;
@@ -194,8 +223,9 @@ public class QuickBooksAuthService : IQuickBooksAuthService
             var newToken = new QuickBooksToken
             {
                 RealmId = realmId,
-                AccessToken = tokens.AccessToken,
-                RefreshToken = tokens.RefreshToken,
+                // Encrypt tokens before saving to database
+                AccessToken = _encryptionService.Encrypt(tokens.AccessToken),
+                RefreshToken = _encryptionService.Encrypt(tokens.RefreshToken),
                 AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn),
                 RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100),
                 CreatedDate = DateTime.UtcNow,
@@ -207,7 +237,7 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         await _dbContext.SaveChangesAsync();
         _cachedToken = null; // Clear cache
 
-        _logger.LogInformation("QuickBooks tokens stored in database for realm {RealmId}", realmId);
+        _logger.LogInformation("QuickBooks tokens encrypted and stored in database for realm {RealmId}", realmId);
 
         return tokens;
     }
@@ -257,17 +287,22 @@ public class QuickBooksAuthService : IQuickBooksAuthService
         var tokens = JsonSerializer.Deserialize<QuickBooksTokenResponse>(content)
             ?? throw new InvalidOperationException("Failed to deserialize token response");
 
-        // Update stored tokens
-        token.AccessToken = tokens.AccessToken;
-        token.RefreshToken = tokens.RefreshToken;
-        token.AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
-        token.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100);
-        token.ModifiedDate = DateTime.UtcNow;
+        // Update stored tokens (encrypt before saving)
+        // Note: 'token' is the decrypted in-memory object, need to update the database record
+        var dbToken = await _dbContext.QuickBooksTokens.FirstOrDefaultAsync(t => t.RealmId == token.RealmId);
+        if (dbToken != null)
+        {
+            dbToken.AccessToken = _encryptionService.Encrypt(tokens.AccessToken);
+            dbToken.RefreshToken = _encryptionService.Encrypt(tokens.RefreshToken);
+            dbToken.AccessTokenExpiresAt = DateTime.UtcNow.AddSeconds(tokens.ExpiresIn);
+            dbToken.RefreshTokenExpiresAt = DateTime.UtcNow.AddDays(100);
+            dbToken.ModifiedDate = DateTime.UtcNow;
 
-        await _dbContext.SaveChangesAsync();
-        _cachedToken = null; // Clear cache
+            await _dbContext.SaveChangesAsync();
+            _cachedToken = null; // Clear cache
 
-        _logger.LogInformation("QuickBooks tokens refreshed successfully");
+            _logger.LogInformation("QuickBooks tokens refreshed and encrypted successfully");
+        }
 
         return tokens;
     }
