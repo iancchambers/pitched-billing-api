@@ -22,8 +22,8 @@
                 <Font Name="Arial" />
               </Style>
             </TextBox>
-            <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.95in" Value="= Fields.BillToCountry" Name="textBox6" />
-            <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.75in" Value="= Fields.BillToPostCode" Name="textBox4" />
+            <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.95in" Value="= Fields.BillToPostCode" Name="textBox6" />
+            <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.75in" Value="= Fields.BillToPostCounty" Name="textBox4" />
             <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.55in" Value="=IsNull(Fields.BillToCity, 'No City')" Name="textBox12" />
             <TextBox Width="3.5in" Height="0.2in" Left="0.4in" Top="0.35in" Value="= Fields.BillToLine1" Name="textBox13" />
             <TextBox Width="1.7in" Height="0.2in" Left="5.9in" Top="0.15in" Value="= Fields.InvoiceNumber" Name="textBox16">
@@ -209,7 +209,7 @@
     </Group>
   </Groups>
   <ReportParameters>
-    <ReportParameter Name="InvoiceId" Type="String" Visible="True">
+    <ReportParameter Name="InvoiceId" Visible="True">
       <Value>
         <String>= Parameters.InvoiceId.Value</String>
       </Value>
