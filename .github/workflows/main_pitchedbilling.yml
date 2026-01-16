@@ -44,9 +44,13 @@ jobs:
         shell: powershell
       
       - name: Build with dotnet
+        env:
+          TELERIK_LICENSE: ${{ secrets.TELERIK_LICENSE }}
         run: dotnet build PitchedBillingApi/PitchedBillingApi.csproj --configuration Release
       
       - name: dotnet publish
+        env:
+          TELERIK_LICENSE: ${{ secrets.TELERIK_LICENSE }}
         run: dotnet publish PitchedBillingApi/PitchedBillingApi.csproj -c Release -o "${{env.DOTNET_ROOT}}/myapp"
       
       - name: Upload artifact for deployment job

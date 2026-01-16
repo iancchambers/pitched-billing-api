@@ -166,11 +166,11 @@ public class BillingPlanTools
         }
     }
 
-    [McpServerTool, Description("Add an item to a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain Renewal for example.com (01/01/2026 to 31/12/2026)', description='Hosting for mysite.co.uk (01/01/2026 to 31/12/2026)'.")]
+    [McpServerTool, Description("Add an item to a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain renewal for example.com (01/01/2026 to 31/12/2026)', description='Hosting for mysite.co.uk for 1 year (01/01/2026 to 31/12/2026)', 'description='Hosting for mysite.co.uk for 1 month (01/12/2026 to 31/12/2026)'.")]
     public async Task<string> AddBillingPlanItem(
         [Description("The GUID of the billing plan")] string planId,
         [Description("QuickBooks item ID")] string quickBooksItemId,
-        [Description("Full formatted description including item type, domain, and date range (e.g., 'Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)')")] string description,
+        [Description("Full formatted description including item type, domain, and date range (e.g., 'Domain registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)')")] string description,
         [Description("Quantity")] decimal quantity,
         [Description("Rate per unit")] decimal rate,
         [Description("From date (ISO 8601 format) - when this item becomes active")] string fromDate,
@@ -203,12 +203,12 @@ public class BillingPlanTools
         }
     }
 
-    [McpServerTool, Description("Update an item in a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain Renewal for example.com (01/01/2026 to 01/01/2027)', description='Hosting for mysite.co.uk (01/01/2026 to 31/12/2026)'.")]
+    [McpServerTool, Description("Update an item in a billing plan. Tax code and VAT rate are fetched from QuickBooks. Common examples: description='Domain registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)', description='Domain renewal for example.com (01/01/2026 to 01/01/2027)', description='Hosting for mysite.co.uk for 1 year (01/01/2026 to 31/12/2026)', description='Hosting for mysite.co.uk for 1 month (01/12/2026 to 31/12/2026)'.")]
     public async Task<string> UpdateBillingPlanItem(
         [Description("The GUID of the billing plan")] string planId,
         [Description("The GUID of the item to update")] string itemId,
         [Description("Updated QuickBooks item ID")] string quickBooksItemId,
-        [Description("Full formatted description including item type, domain, and date range (e.g., 'Domain Registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)')")] string description,
+        [Description("Full formatted description including item type, domain, and date range (e.g., 'Domain registration for keepwifehappy.co.uk (09/01/2026 to 08/01/2028)')")] string description,
         [Description("Updated quantity")] decimal quantity,
         [Description("Updated rate")] decimal rate,
         [Description("Updated from date (ISO 8601 format)")] string fromDate,
